@@ -1,15 +1,19 @@
 import os
 import sqlite3
 from datetime import datetime
+from urllib.parse import urlparse
+
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Postgres (Neon) support
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 
 # ✅ Secret key (Render/Prod मध्ये ENV ने set कर)
 app.secret_key = os.environ.get("SECRET_KEY", "CHANGE_THIS_TO_A_RANDOM_SECRET_KEY")
-
-DB_NAME = "database.db"
 
 # ✅ Branding (इथे नाव/लोगो/टॅगलाइन one-place change)
 BRAND = {
@@ -40,7 +44,6 @@ NAV_ITEMS = [
 ADSENSE_CLIENT = os.getenv("ADSENSE_CLIENT", "").strip()  # e.g. ca-pub-xxxxxxxxxxxx
 ADS_ENABLED = bool(ADSENSE_CLIENT)
 
-# Optional: if you create separate ad units in AdSense, store their slot IDs as ENV
 ADS_SLOT_TOP = os.getenv("ADS_SLOT_TOP", "").strip()
 ADS_SLOT_SIDE = os.getenv("ADS_SLOT_SIDE", "").strip()
 ADS_SLOT_INCONTENT = os.getenv("ADS_SLOT_INCONTENT", "").strip()
@@ -52,17 +55,104 @@ app.config["ADS_SLOT_SIDE"] = ADS_SLOT_SIDE
 app.config["ADS_SLOT_INCONTENT"] = ADS_SLOT_INCONTENT
 
 
+# =========================
+# ✅ DB SETUP (SQLite local dev fallback, Postgres on Render/Neon)
+# =========================
+DB_NAME = "database.db"
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
+
+# Render/Neon कधी कधी postgres:// देतात; psycopg2 ला postgresql:// चालतो, पण postgres:// सुद्धा चालतो.
+# तरी normalize ठेवू
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+
+USE_POSTGRES = DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
+
+
+class DBConn:
+    """
+    sqlite3 आणि psycopg2 दोन्हींसाठी common interface
+    - execute().fetchone()/fetchall() काम करेल
+    """
+    def __init__(self, conn, is_pg: bool):
+        self.conn = conn
+        self.is_pg = is_pg
+
+    def execute(self, query: str, params=()):
+        if self.is_pg:
+            cur = self.conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(query, params or ())
+            return cur
+        else:
+            return self.conn.execute(query, params or ())
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
 def get_db():
+    """
+    - Local: SQLite
+    - Render/Prod: Postgres (Neon)
+    """
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        return DBConn(conn, True)
+
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
-    return conn
+    return DBConn(conn, False)
 
 
 def init_db():
-    conn = get_db()
-    cur = conn.cursor()
+    db = get_db()
 
-    cur.execute("""
+    if USE_POSTGRES:
+        # Postgres schema
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS users(
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS posts(
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                content TEXT NOT NULL,
+                official_link TEXT,
+                form_link TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # default admin (idempotent)
+        default_pass = os.environ.get("ADMIN_PASSWORD", "Admin@12345")
+        now = datetime.now().isoformat()
+
+        db.execute(
+            """
+            INSERT INTO users(username, password_hash, created_at)
+            VALUES(%s, %s, %s)
+            ON CONFLICT (username) DO NOTHING
+            """,
+            ("admin", generate_password_hash(default_pass), now),
+        )
+        db.commit()
+        db.close()
+        return
+
+    # SQLite schema
+    db.execute("""
         CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -71,7 +161,7 @@ def init_db():
         )
     """)
 
-    cur.execute("""
+    db.execute("""
         CREATE TABLE IF NOT EXISTS posts(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -86,17 +176,17 @@ def init_db():
     """)
 
     # default admin
-    cur.execute("SELECT 1 FROM users WHERE username=?", ("admin",))
+    cur = db.execute("SELECT 1 FROM users WHERE username=?", ("admin",))
     if not cur.fetchone():
         default_pass = os.environ.get("ADMIN_PASSWORD", "Admin@12345")
-        cur.execute(
+        db.execute(
             "INSERT INTO users(username, password_hash, created_at) VALUES(?,?,?)",
             ("admin", generate_password_hash(default_pass), datetime.now().isoformat()),
         )
         print("✅ Default admin: admin / Admin@12345  (लॉगिन करून लगेच change कर)")
 
-    conn.commit()
-    conn.close()
+    db.commit()
+    db.close()
 
 
 # ✅ Gunicorn/Render मध्ये पण DB initialize होण्यासाठी
@@ -109,7 +199,6 @@ def inject_globals():
         NAV_ITEMS=NAV_ITEMS,
         BRAND=BRAND,
         current_year=datetime.now().year,
-        # ✅ ads variables available in templates
         ADS_ENABLED=app.config["ADS_ENABLED"],
         ADSENSE_CLIENT=app.config["ADSENSE_CLIENT"],
         ADS_SLOT_TOP=app.config["ADS_SLOT_TOP"],
@@ -124,21 +213,37 @@ def is_logged_in():
 
 @app.route("/")
 def index():
-    conn = get_db()
+    db = get_db()
 
-    posts = conn.execute(
+    if USE_POSTGRES:
+        posts = db.execute(
+            "SELECT * FROM posts ORDER BY created_at DESC LIMIT 12"
+        ).fetchall()
+
+        cat_blocks = {}
+        for key, label in CATEGORIES:
+            cat_posts = db.execute(
+                "SELECT * FROM posts WHERE category=%s ORDER BY created_at DESC LIMIT 4",
+                (key,),
+            ).fetchall()
+            cat_blocks[key] = {"label": label, "posts": cat_posts}
+
+        db.close()
+        return render_template("index.html", posts=posts, cat_blocks=cat_blocks)
+
+    posts = db.execute(
         "SELECT * FROM posts ORDER BY created_at DESC LIMIT 12"
     ).fetchall()
 
     cat_blocks = {}
     for key, label in CATEGORIES:
-        cat_posts = conn.execute(
+        cat_posts = db.execute(
             "SELECT * FROM posts WHERE category=? ORDER BY created_at DESC LIMIT 4",
             (key,),
         ).fetchall()
         cat_blocks[key] = {"label": label, "posts": cat_posts}
 
-    conn.close()
+    db.close()
     return render_template("index.html", posts=posts, cat_blocks=cat_blocks)
 
 
@@ -147,30 +252,50 @@ def category(cat_key):
     if cat_key not in [c[0] for c in CATEGORIES]:
         abort(404)
 
-    conn = get_db()
-    posts = conn.execute(
-        "SELECT * FROM posts WHERE category=? ORDER BY created_at DESC",
-        (cat_key,),
-    ).fetchall()
-    conn.close()
+    db = get_db()
+    if USE_POSTGRES:
+        posts = db.execute(
+            "SELECT * FROM posts WHERE category=%s ORDER BY created_at DESC",
+            (cat_key,),
+        ).fetchall()
+    else:
+        posts = db.execute(
+            "SELECT * FROM posts WHERE category=? ORDER BY created_at DESC",
+            (cat_key,),
+        ).fetchall()
 
+    db.close()
     label = dict(CATEGORIES).get(cat_key, cat_key)
     return render_template("category.html", posts=posts, cat_key=cat_key, label=label)
 
 
 @app.route("/post/<int:post_id>")
 def post(post_id):
-    conn = get_db()
-    p = conn.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone()
+    db = get_db()
+
+    if USE_POSTGRES:
+        p = db.execute("SELECT * FROM posts WHERE id=%s", (post_id,)).fetchone()
+        if not p:
+            db.close()
+            abort(404)
+
+        related = db.execute(
+            "SELECT * FROM posts WHERE category=%s AND id<>%s ORDER BY created_at DESC LIMIT 6",
+            (p["category"], post_id),
+        ).fetchall()
+        db.close()
+        return render_template("post.html", post=p, related=related)
+
+    p = db.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone()
     if not p:
-        conn.close()
+        db.close()
         abort(404)
 
-    related = conn.execute(
+    related = db.execute(
         "SELECT * FROM posts WHERE category=? AND id<>? ORDER BY created_at DESC LIMIT 6",
         (p["category"], post_id),
     ).fetchall()
-    conn.close()
+    db.close()
 
     return render_template("post.html", post=p, related=related)
 
@@ -181,8 +306,20 @@ def search():
     if not q:
         return redirect(url_for("index"))
 
-    conn = get_db()
-    posts = conn.execute(
+    db = get_db()
+    if USE_POSTGRES:
+        posts = db.execute(
+            """
+            SELECT * FROM posts
+            WHERE title ILIKE %s OR summary ILIKE %s OR content ILIKE %s
+            ORDER BY created_at DESC
+            """,
+            (f"%{q}%", f"%{q}%", f"%{q}%"),
+        ).fetchall()
+        db.close()
+        return render_template("category.html", posts=posts, cat_key="search", label=f"Search: {q}")
+
+    posts = db.execute(
         """
         SELECT * FROM posts
         WHERE title LIKE ? OR summary LIKE ? OR content LIKE ?
@@ -190,7 +327,7 @@ def search():
         """,
         (f"%{q}%", f"%{q}%", f"%{q}%"),
     ).fetchall()
-    conn.close()
+    db.close()
 
     return render_template("category.html", posts=posts, cat_key="search", label=f"Search: {q}")
 
@@ -202,9 +339,12 @@ def admin_login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
 
-        conn = get_db()
-        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-        conn.close()
+        db = get_db()
+        if USE_POSTGRES:
+            user = db.execute("SELECT * FROM users WHERE username=%s", (username,)).fetchone()
+        else:
+            user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        db.close()
 
         if user and check_password_hash(user["password_hash"], password):
             session["user"] = username
@@ -228,7 +368,7 @@ def admin():
     if not is_logged_in():
         return redirect(url_for("admin_login"))
 
-    conn = get_db()
+    db = get_db()
 
     if request.method == "POST":
         action = request.form.get("action")
@@ -245,21 +385,35 @@ def admin():
                 flash("❌ Title, Summary, Content आणि Category required", "error")
             else:
                 now = datetime.now().isoformat()
-                conn.execute(
-                    """
-                    INSERT INTO posts(title, category, summary, content, official_link, form_link, created_at, updated_at)
-                    VALUES(?,?,?,?,?,?,?,?)
-                    """,
-                    (title, category, summary, content, official_link, form_link, now, now),
-                )
-                conn.commit()
+
+                if USE_POSTGRES:
+                    db.execute(
+                        """
+                        INSERT INTO posts(title, category, summary, content, official_link, form_link, created_at, updated_at)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (title, category, summary, content, official_link, form_link, now, now),
+                    )
+                else:
+                    db.execute(
+                        """
+                        INSERT INTO posts(title, category, summary, content, official_link, form_link, created_at, updated_at)
+                        VALUES(?,?,?,?,?,?,?,?)
+                        """,
+                        (title, category, summary, content, official_link, form_link, now, now),
+                    )
+
+                db.commit()
                 flash("✅ Post created", "success")
 
         elif action == "delete":
             pid = request.form.get("post_id")
             if pid:
-                conn.execute("DELETE FROM posts WHERE id=?", (pid,))
-                conn.commit()
+                if USE_POSTGRES:
+                    db.execute("DELETE FROM posts WHERE id=%s", (pid,))
+                else:
+                    db.execute("DELETE FROM posts WHERE id=?", (pid,))
+                db.commit()
                 flash("🗑️ Post deleted", "success")
 
         elif action == "update_password":
@@ -269,20 +423,33 @@ def admin():
             if len(newp) < 8:
                 flash("❌ New password किमान 8 characters", "error")
             else:
-                user = conn.execute("SELECT * FROM users WHERE username=?", (session["user"],)).fetchone()
+                if USE_POSTGRES:
+                    user = db.execute("SELECT * FROM users WHERE username=%s", (session["user"],)).fetchone()
+                else:
+                    user = db.execute("SELECT * FROM users WHERE username=?", (session["user"],)).fetchone()
+
                 if user and check_password_hash(user["password_hash"], oldp):
-                    conn.execute(
-                        "UPDATE users SET password_hash=? WHERE username=?",
-                        (generate_password_hash(newp), session["user"]),
-                    )
-                    conn.commit()
+                    if USE_POSTGRES:
+                        db.execute(
+                            "UPDATE users SET password_hash=%s WHERE username=%s",
+                            (generate_password_hash(newp), session["user"]),
+                        )
+                    else:
+                        db.execute(
+                            "UPDATE users SET password_hash=? WHERE username=?",
+                            (generate_password_hash(newp), session["user"]),
+                        )
+                    db.commit()
                     flash("✅ Password updated", "success")
                 else:
                     flash("❌ Old password wrong", "error")
 
-    posts = conn.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
-    conn.close()
+    if USE_POSTGRES:
+        posts = db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
+    else:
+        posts = db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
 
+    db.close()
     return render_template("admin.html", posts=posts, categories=CATEGORIES)
 
 

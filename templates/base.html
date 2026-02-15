@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="mr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ BRAND.site_name }}{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  {# ✅ AdSense script only when monetized (no script until ADS_ENABLED) #}
+  {% if (show_ads is not defined or show_ads) and ADS_ENABLED and ADSENSE_CLIENT %}
+    <script async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ ADSENSE_CLIENT }}"
+      crossorigin="anonymous"></script>
+  {% endif %}
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <a class="logo" href="{{ url_for('index') }}">{{ BRAND.logo_text }}</a>
+      <div>
+        <a class="site-title" href="{{ url_for('index') }}">{{ BRAND.site_name }}</a>
+        <div class="tagline">{{ BRAND.tagline }}</div>
+      </div>
+    </div>
+
+    <form class="search" action="{{ url_for('search') }}" method="get">
+      <input name="q" placeholder="Search jobs, results, schemes..." />
+      <button type="submit">Search</button>
+    </form>
+  </div>
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      {% for key,label in NAV_ITEMS %}
+        <a href="{{ url_for('category', cat_key=key) }}">{{ label }}</a>
+      {% endfor %}
+      <a class="admin-link" href="{{ url_for('admin') }}">Admin</a>
+    </div>
+  </nav>
+
+  {# ✅ TOP banner ad (will be completely hidden until ADS_ENABLED) #}
+  <div class="wrap">
+    {% if show_ads is not defined or show_ads %}
+      {% set slot_name = "top" %}
+      {% include "_ads_blocks.html" %}
+    {% endif %}
+  </div>
+</header>
+
+<main class="wrap main">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-wrap">
+        {% for cat,msg in messages %}
+          <div class="flash {{cat}}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <div>
+      <div class="footer-title">{{ BRAND.site_name }}</div>
+      <p class="muted">
+        सरकारी Jobs/Results/Schemes/Exam info एकाच ठिकाणी. Always verify on official website.
+      </p>
+    </div>
+
+    <div>
+      <div class="footer-title">Quick Links</div>
+      <div class="footer-links">
+        {% for key,label in NAV_ITEMS %}
+          <a href="{{ url_for('category', cat_key=key) }}">{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div>
+      <div class="footer-title">Important Note</div>
+      <p class="muted">
+        आम्ही फक्त माहिती देतो. अंतिम माहिती/अर्जासाठी नेहमी अधिकृत संकेतस्थळ तपासा.
+      </p>
+    </div>
+  </div>
+
+  <div class="wrap footer-bottom">
+    <span class="muted">© {{ BRAND.site_name }} {{ current_year }}</span>
+    <span class="muted">Made in Maharashtra 🇮🇳</span>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

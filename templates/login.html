@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{# ✅ Login page वर ads नको #}
+{% set show_ads = false %}
+
+{% block content %}
+<div class="auth">
+  <div class="auth-card">
+    <h1>Admin Login</h1>
+    <p class="muted">Default: admin / Admin@12345 (लॉगिन नंतर लगेच change कर)</p>
+
+    <form method="post" class="form">
+      <label>Username</label>
+      <input name="username" required />
+
+      <label>Password</label>
+      <input name="password" type="password" required />
+
+      <button class="btn" type="submit">Login</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

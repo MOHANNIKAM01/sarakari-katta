@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="layout">
+  <!-- LEFT: Main content -->
+  <div class="content-col">
+
+    <section class="hero">
+      <div class="hero-card">
+        <h1>Latest Updates</h1>
+        <p class="muted">Jobs • Results • Schemes • Cutoffs • Current Affairs</p>
+      </div>
+    </section>
+
+    {# ✅ In-content ad (hidden until monetized) #}
+    {% set slot_name = "incontent" %}
+    {% include "_ads_blocks.html" %}
+
+    <section class="grid">
+      {% for p in posts %}
+        <a class="card" href="{{ url_for('post', post_id=p['id']) }}">
+          <div class="badge">{{ p['category'].replace('_',' ').title() }}</div>
+          <h3>{{ p['title'] }}</h3>
+          <p class="muted">{{ p['summary'] }}</p>
+          <div class="meta">Posted: {{ p['created_at'][:10] }}</div>
+        </a>
+      {% endfor %}
+    </section>
+
+    {% for cat_key, block in cat_blocks.items() %}
+      <section class="section">
+        <div class="section-head">
+          <h2>{{ block.label }}</h2>
+          <a class="more" href="{{ url_for('category', cat_key=cat_key) }}">View all →</a>
+        </div>
+
+        <div class="grid small">
+          {% for p in block.posts %}
+            <a class="card" href="{{ url_for('post', post_id=p['id']) }}">
+              <h3>{{ p['title'] }}</h3>
+              <p class="muted">{{ p['summary'] }}</p>
+              <div class="meta">Posted: {{ p['created_at'][:10] }}</div>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+
+  </div>
+
+  <!-- RIGHT: Sidebar -->
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="footer-title" style="color: var(--text);">Important</div>
+      <p class="muted" style="margin:0;">
+        नवीन अपडेट्ससाठी categories वापरा आणि पोस्टमध्ये दिलेला Official link verify करा.
+      </p>
+    </div>
+
+    {# ✅ Sidebar ad #}
+    {% set slot_name = "side" %}
+    {% include "_ads_blocks.html" %}
+
+    <div class="panel">
+      <div class="footer-title" style="color: var(--text);">Quick Navigation</div>
+      <div class="footer-links" style="gap:10px;">
+        {% for key,label in NAV_ITEMS %}
+          <a href="{{ url_for('category', cat_key=key) }}" style="color: var(--primary); opacity:1;">
+            {{ label }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ✅ Another sidebar ad (same slot used again is okay; AdSense may fill) #}
+    {% set slot_name = "side" %}
+    {% include "_ads_blocks.html" %}
+  </aside>
+</div>
+
+{% endblock %}

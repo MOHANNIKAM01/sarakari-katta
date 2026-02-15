@@ -1,0 +1,45 @@
+{# 
+  Ads blocks (Mazhi Naukri style: non intrusive)
+  - Completely hidden until ADS_ENABLED true
+  - slot_name must be: "top" | "side" | "incontent"
+#}
+
+{% if (show_ads is not defined or show_ads) and ADS_ENABLED and ADSENSE_CLIENT %}
+
+  {% if slot_name == "top" and ADS_SLOT_TOP %}
+    <div class="ad-slot ad-top" aria-label="Advertisement">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="{{ ADSENSE_CLIENT }}"
+           data-ad-slot="{{ ADS_SLOT_TOP }}"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  {% endif %}
+
+  {% if slot_name == "side" and ADS_SLOT_SIDE %}
+    <div class="ad-slot ad-side" aria-label="Advertisement">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="{{ ADSENSE_CLIENT }}"
+           data-ad-slot="{{ ADS_SLOT_SIDE }}"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  {% endif %}
+
+  {% if slot_name == "incontent" and ADS_SLOT_INCONTENT %}
+    <div class="ad-slot ad-incontent" aria-label="Advertisement">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="{{ ADSENSE_CLIENT }}"
+           data-ad-slot="{{ ADS_SLOT_INCONTENT }}"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  {% endif %}
+
+{% endif %}

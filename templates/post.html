@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+
+<article class="post">
+  <div class="post-head">
+    <div class="badge">{{ post['category'].replace('_',' ').title() }}</div>
+    <h1>{{ post['title'] }}</h1>
+    <div class="meta">Posted: {{ post['created_at'][:10] }}</div>
+  </div>
+
+  {# ✅ Ad after title (hidden until monetized) #}
+  {% set slot_name = "incontent" %}
+  {% include "_ads_blocks.html" %}
+
+  <div class="post-actions">
+    {% if post['official_link'] %}
+      <a class="btn" target="_blank" rel="noopener" href="{{ post['official_link'] }}">Official Website</a>
+    {% endif %}
+    {% if post['form_link'] %}
+      <a class="btn outline" target="_blank" rel="noopener" href="{{ post['form_link'] }}">Apply / Form Link</a>
+    {% endif %}
+  </div>
+
+  <div class="post-body">
+    <h3>Summary</h3>
+    <p>{{ post['summary'] }}</p>
+
+    <h3>Details</h3>
+
+    {# ✅ Tabular details (safe with current DB fields) #}
+    <div class="details-table-wrap">
+      <table class="details-table">
+        <tbody>
+          <tr>
+            <th>Category</th>
+            <td>{{ post['category'].replace('_',' ').title() }}</td>
+          </tr>
+
+          {% if post['created_at'] %}
+          <tr>
+            <th>Posted On</th>
+            <td>{{ post['created_at'][:10] }}</td>
+          </tr>
+          {% endif %}
+
+          {% if post['official_link'] %}
+          <tr>
+            <th>Official Website</th>
+            <td><a href="{{ post['official_link'] }}" target="_blank" rel="noopener">Open</a></td>
+          </tr>
+          {% endif %}
+
+          {% if post['form_link'] %}
+          <tr>
+            <th>Apply / Form Link</th>
+            <td><a href="{{ post['form_link'] }}" target="_blank" rel="noopener">Open</a></td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="content">{{ post['content'] | safe }}</div>
+
+    {# ✅ Ad near end (hidden until monetized) #}
+    {% set slot_name = "incontent" %}
+    {% include "_ads_blocks.html" %}
+
+    <div class="note">
+      <b>Important:</b> अंतिम माहिती/अर्जासाठी अधिकृत संकेतस्थळ तपासा.
+    </div>
+  </div>
+</article>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Related</h2>
+  </div>
+  <div class="grid small">
+    {% for p in related %}
+      <a class="card" href="{{ url_for('post', post_id=p['id']) }}">
+        <h3>{{ p['title'] }}</h3>
+        <p class="muted">{{ p['summary'] }}</p>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+{% endblock %}

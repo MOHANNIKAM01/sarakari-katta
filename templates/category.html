@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="layout">
+  <!-- LEFT: Main content -->
+  <div class="content-col">
+
+    <div class="page-head">
+      <div>
+        <h1 style="margin:0;">{{ label }}</h1>
+        <p class="muted" style="margin:6px 0 0;">Total: {{ posts|length }}</p>
+      </div>
+    </div>
+
+    {# ✅ In-content ad (hidden until monetized) #}
+    {% set slot_name = "incontent" %}
+    {% include "_ads_blocks.html" %}
+
+    <div class="grid">
+      {% for p in posts %}
+        <a class="card" href="{{ url_for('post', post_id=p['id']) }}">
+          <div class="badge">{{ p['category'].replace('_',' ').title() }}</div>
+          <h3>{{ p['title'] }}</h3>
+          <p class="muted">{{ p['summary'] }}</p>
+          <div class="meta">Posted: {{ p['created_at'][:10] }}</div>
+        </a>
+      {% else %}
+        <div class="empty">
+          <h3>No posts yet</h3>
+          <p class="muted">Admin panel मधून नवीन पोस्ट add कर.</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    {# ✅ Optional bottom in-content ad #}
+    {% set slot_name = "incontent" %}
+    {% include "_ads_blocks.html" %}
+
+  </div>
+
+  <!-- RIGHT: Sidebar -->
+  <aside class="sidebar">
+
+    <div class="panel">
+      <div class="footer-title" style="color: var(--text);">Tip</div>
+      <p class="muted" style="margin:0;">
+        पोस्ट उघडून Official Website/Apply link वरूनच final verify करा.
+      </p>
+    </div>
+
+    {# ✅ Sidebar ad #}
+    {% set slot_name = "side" %}
+    {% include "_ads_blocks.html" %}
+
+    <div class="panel">
+      <div class="footer-title" style="color: var(--text);">Quick Navigation</div>
+      <div class="footer-links" style="gap:10px;">
+        {% for key,label in NAV_ITEMS %}
+          <a href="{{ url_for('category', cat_key=key) }}" style="color: var(--primary); opacity:1;">
+            {{ label }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ✅ Another sidebar ad #}
+    {% set slot_name = "side" %}
+    {% include "_ads_blocks.html" %}
+
+  </aside>
+</div>
+
+{% endblock %}

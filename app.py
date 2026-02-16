@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime
 from urllib.parse import urlparse
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Postgres (Neon) support
@@ -209,6 +209,69 @@ def inject_globals():
 
 def is_logged_in():
     return bool(session.get("user"))
+
+
+# =========================
+# ✅ SEO BASE URL HELPER
+# =========================
+def get_base_url():
+    """
+    SEO साठी canonical base URL
+    - prod मध्ये ENV SITE_URL दिलं असेल तर ते वापर
+    - नाहीतर request.host_url वापर (Render URL / custom domain दोन्ही चालेल)
+    """
+    site = (os.getenv("SITE_URL") or "").strip()
+    if site:
+        return site.rstrip("/")
+    return request.host_url.rstrip("/")
+
+
+# =========================
+# ✅ SITEMAP + ROBOTS
+# =========================
+@app.route("/sitemap.xml")
+def sitemap():
+    base = get_base_url()
+
+    urls = []
+    # core pages
+    urls.append(f"{base}/")
+    for key, _label in CATEGORIES:
+        urls.append(f"{base}/category/{key}")
+
+    # posts
+    db = get_db()
+    if USE_POSTGRES:
+        rows = db.execute("SELECT id FROM posts ORDER BY created_at DESC").fetchall()
+        for r in rows:
+            urls.append(f"{base}/post/{r['id']}")
+    else:
+        rows = db.execute("SELECT id FROM posts ORDER BY created_at DESC").fetchall()
+        for r in rows:
+            urls.append(f"{base}/post/{r['id']}")
+
+    db.close()
+
+    xml = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    ]
+    for u in urls:
+        xml.append(f"<url><loc>{u}</loc></url>")
+    xml.append("</urlset>")
+
+    return Response("\n".join(xml), mimetype="application/xml")
+
+
+@app.route("/robots.txt")
+def robots():
+    base = get_base_url()
+    body = "\n".join([
+        "User-agent: *",
+        "Allow: /",
+        f"Sitemap: {base}/sitemap.xml"
+    ])
+    return Response(body, mimetype="text/plain")
 
 
 @app.route("/")
